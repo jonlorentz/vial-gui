@@ -45,7 +45,47 @@ if sys.platform == "emscripten":
         def device():
             return hiddevice()
 
-elif sys.platform.startswith("linux"):
-    import hidraw as hid
 else:
-    import hid
+    if sys.platform.startswith("linux"):
+        import hidraw as _platform_hid
+    else:
+        import hid as _platform_hid
+
+    class _BLEAwareDevice:
+        """Wraps a platform HID device but intercepts BLE paths."""
+
+        def __init__(self):
+            self._inner = None
+
+        def open_path(self, path):
+            if isinstance(path, (bytes, bytearray)):
+                path_str = path.decode("utf-8", errors="replace")
+            else:
+                path_str = path
+            if path_str.startswith("ble:"):
+                from ble_transport import BLEVialDevice
+                addr = path_str[4:]
+                self._inner = BLEVialDevice(addr)
+                self._inner.open_path(path)
+            else:
+                self._inner = _platform_hid.device()
+                self._inner.open_path(path)
+
+        def write(self, data):
+            return self._inner.write(data)
+
+        def read(self, length, timeout_ms=0):
+            return self._inner.read(length, timeout_ms=timeout_ms)
+
+        def close(self):
+            return self._inner.close()
+
+    class hid:
+
+        @staticmethod
+        def enumerate():
+            return _platform_hid.enumerate()
+
+        @staticmethod
+        def device():
+            return _BLEAwareDevice()

@@ -67,12 +67,22 @@ def hid_send(dev, msg, retries=1):
     return data
 
 
+def _is_ble_path(path):
+    if isinstance(path, (bytes, bytearray)):
+        return path.startswith(b"ble:")
+    return str(path).startswith("ble:")
+
+
 def is_rawhid(desc, quiet):
     if desc["usage_page"] != 0xFF60 or desc["usage"] != 0x61:
         if not quiet:
             logging.warning("is_rawhid: {} does not match - usage_page={:04X} usage={:02X}".format(
                 desc["path"], desc["usage_page"], desc["usage"]))
         return False
+
+    # BLE devices already passed validation during scanning
+    if _is_ble_path(desc["path"]):
+        return True
 
     # there's no reason to check for permission issues on mac or windows
     # and mac won't let us reopen an opened device
@@ -125,6 +135,20 @@ def find_vial_devices(via_stack_json, sideload_vid=None, sideload_pid=None, quie
                 ))
             if is_rawhid(dev, quiet):
                 filtered.append(VialKeyboard(dev, via_stack=True))
+
+    # BLE Vial devices (via Keyboard Hub)
+    try:
+        from ble_transport import scan_ble_vial
+        for dev in scan_ble_vial():
+            if not quiet:
+                logging.info("Matching BLE device: {} path={}".format(
+                    dev["product_string"], dev["path"]
+                ))
+            if is_rawhid(dev, quiet):
+                filtered.append(VialKeyboard(dev))
+    except Exception as e:
+        if not quiet:
+            logging.warning("BLE scan skipped: %s", e)
 
     if sideload_vid == sideload_pid == 0:
         filtered.append(VialDummyKeyboard())
