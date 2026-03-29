@@ -30,6 +30,10 @@ VIAL_SERIAL_NUMBER_MAGIC = "vial:f64c2b3c"
 _loop = None
 _thread = None
 _lock = threading.Lock()
+_scan_lock = threading.Lock()
+_scan_cache = []
+_scan_cache_time = 0
+SCAN_CACHE_TTL = 10.0  # seconds
 
 
 def _ensure_loop():
@@ -96,10 +100,24 @@ class BLEVialDevice:
         self._client = None
 
 
-def scan_ble_vial(timeout=4.0):
-    """Return a list of synthetic HID-descriptor dicts for BLE Vial devices."""
+def scan_ble_vial(timeout=2.0):
+    """Return a list of synthetic HID-descriptor dicts for BLE Vial devices.
+
+    Results are cached for SCAN_CACHE_TTL seconds so that rapid polling
+    from the Vial GUI doesn't pile up BlueZ scan requests.
+    """
+    import time
+    global _scan_cache, _scan_cache_time
+
     if not BLEAK_AVAILABLE:
         return []
+
+    now = time.monotonic()
+    if now - _scan_cache_time < SCAN_CACHE_TTL:
+        return list(_scan_cache)
+
+    if not _scan_lock.acquire(blocking=False):
+        return list(_scan_cache)
 
     try:
         devices_adv = _run(
@@ -111,7 +129,9 @@ def scan_ble_vial(timeout=4.0):
         )
     except Exception as e:
         logging.warning("BLE scan failed: %s", e)
-        return []
+        return list(_scan_cache)
+    finally:
+        _scan_lock.release()
 
     results = []
     for addr, (device, adv) in devices_adv.items():
@@ -126,4 +146,7 @@ def scan_ble_vial(timeout=4.0):
             "product_string": device.name or "BLE Vial",
             "_ble_address": addr,
         })
-    return results
+
+    _scan_cache = results
+    _scan_cache_time = now
+    return list(results)
