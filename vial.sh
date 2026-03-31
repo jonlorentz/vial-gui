@@ -11,6 +11,12 @@ if [ ! -d "$VENV_DIR" ]; then
     python3 -m venv "$VENV_DIR"
 fi
 
+# Ensure pip is available (some distros don't bootstrap it automatically)
+if [ ! -f "$VENV_DIR/bin/pip" ]; then
+    echo "Bootstrapping pip..."
+    "$VENV_DIR/bin/python" -m ensurepip --upgrade
+fi
+
 if [ ! -f "$VENV_DIR/.deps-installed" ]; then
     echo "Installing dependencies..."
     "$VENV_DIR/bin/pip" install --upgrade pip -q
